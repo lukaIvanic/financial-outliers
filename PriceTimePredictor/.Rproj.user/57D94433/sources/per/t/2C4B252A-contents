@@ -1,0 +1,148 @@
+# Install and load required packages
+if (!require("univOutl")) install.packages("univOutl")
+if (!require("ggplot2")) install.packages("ggplot2")
+library(univOutl)
+library(ggplot2)
+
+analyze_bitcoin_outliers <- function(file_path, start_year, start_month, end_year, end_month) {
+  # Read the data
+  data <- read.csv(file_path)
+  
+  # Convert datetime_str to proper datetime
+  data$datetime <- as.POSIXct(data$datetime_str)
+  
+  start_date <- as.POSIXct(paste(start_year, sprintf("%02d", start_month), "01", sep = "-"))
+  end_date <- as.POSIXct(paste(end_year, sprintf("%02d", end_month), "01", sep = "-"))
+  
+  # Adjust end_date to the last day of the specified month
+  end_date <- seq(end_date, by = "month", length = 2)[2] - 1
+  
+  # Filter for the datetime range
+  data_filtered <- subset(data, datetime >= start_date & datetime <= end_date)
+  
+  if(nrow(data_filtered) == 0) {
+    stop("No data found for specified year and month")
+  }
+  
+  # Use closing prices
+  prices <- data_filtered$close
+  
+  data_filtered$price_change <- data_filtered$high - data_filtered$low
+  price_push <- data_filtered$price_change / data_filtered$volume
+  
+  volume <- data_filtered$volume
+  
+  
+  variable <- volume
+  
+  # Create time period comparisons
+  yt1 <- variable[-length(variable)]  # All prices except last
+  yt2 <- variable[-1]               # All prices except first
+  
+  # Apply Hidiroglou-Berthelot method
+  hb_results <- univOutl::HBmethod(yt1, yt2, U=0.5, A=0.04, C=4, pct=0.10, adjboxE=FALSE)
+  
+  # Create outlier vector (FALSE by default)
+  outlier_flags <- rep(FALSE, length(yt1))
+  
+  # Set TRUE for indices identified as outliers
+  if (length(hb_results$outliers) > 0) {
+    outlier_flags[hb_results$outliers] <- TRUE
+  }
+  
+  # Create a data frame with results
+  results <- data.frame(
+    datetime = data_filtered$datetime[-length(data_filtered$datetime)],
+    price_t1 = yt1,
+    price_t2 = yt2,
+    is_outlier = outlier_flags
+  )
+  
+  # Add bounds if they exist
+  if (!is.null(hb_results$bounds)) {
+    results$lower_bound <- hb_results$bounds[1]
+    results$upper_bound <- hb_results$bounds[2]
+  }
+  
+  return(list(
+    results = results,
+    medcouple = hb_results$mc,
+    outliers_left = hb_results$nout.left,
+    outliers_right = hb_results$nout.right
+  ))
+}
+
+# Function to create and display plots
+plot_analysis <- function(analysis, year, month) {
+  month_name <- month.name[month]
+  
+  # Scatter plot of price changes
+  p1 <- ggplot(analysis$results, aes(x = price_t1, y = price_t2)) +
+    geom_point(aes(color = is_outlier), alpha = 0.6) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+    theme_minimal() +
+    labs(title = paste("Bitcoin Price Changes -", month_name, year),
+         subtitle = "Comparing consecutive hourly prices",
+         x = "Price at t-1",
+         y = "Price at t",
+         color = "Is Outlier") +
+    scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red"))
+  
+  # Time series plot
+  p2 <- ggplot(analysis$results, aes(x = datetime, y = price_t2)) +
+    geom_line(color = "gray") +
+    geom_point(data = subset(analysis$results, is_outlier), 
+               aes(x = datetime, y = price_t2), 
+               color = "red", size = 2) +
+    theme_minimal() +
+    labs(title = paste("Bitcoin Price Time Series -", month_name, year),
+         subtitle = "Red points indicate outlier changes",
+         x = "Date",
+         y = "Price (USD)")
+  
+  # Display plots
+  print(p1)
+  print(p2)
+  
+  # Return plots in case needed for saving
+  return(list(scatter = p1, timeseries = p2))
+}
+
+# Example usage:
+year <- 2024  # Change to desired year
+month <- 6# Change to desired month (1-12)
+
+startYear <- 2024
+startMonth <- 6
+endYear <- 2024
+endMonth <- 10
+
+# Run analysis
+#analysis <- analyze_bitcoin_outliers("BTCUSDT1h.csv", year, month)
+analysis <- analyze_bitcoin_outliers(
+  file_path = "BTCUSDT1h.csv",
+  start_year = 2024, 
+  start_month = 6, 
+  end_year = 2024, 
+  end_month = 8
+)
+
+# Print summary statistics
+cat("Analysis period:", format(min(analysis$results$datetime)), "to", format(max(analysis$results$datetime)), "\n")
+cat("MedCouple skewness measure:", analysis$medcouple, "\n")
+cat("Outliers found in left tail:", analysis$outliers_left, "\n")
+cat("Outliers found in right tail:", analysis$outliers_right, "\n")
+
+# Print outlier details
+outliers <- analysis$results[analysis$results$is_outlier, ]
+if (nrow(outliers) > 0) {
+  cat("\nOutlier details:\n")
+  print(outliers[, c("datetime", "price_t1", "price_t2", "is_outlier")])
+}
+
+# Create and display plots
+plots <- plot_analysis(analysis, year, month)
+
+# Optional: Save plots
+# ggsave(paste0("bitcoin_hb_scatter_", year, "_", month, ".png"), plots$scatter, width = 10, height = 6)
+# ggsave(paste0("bitcoin_hb_timeseries_", year, "_", month, ".png"), plots$timeseries, width = 10, height = 6)
