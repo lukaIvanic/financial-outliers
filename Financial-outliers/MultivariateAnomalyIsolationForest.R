@@ -1,0 +1,106 @@
+library(data.table)
+library(randomForest)
+
+df <- fread("BTCUSDT1h.csv")
+df$datetime <- as.POSIXct(df$datetime_str, format = "%Y-%m-%d %H:%M:%S")
+df$datetime_str <- NULL
+
+df$hour <- as.integer(format(df$datetime, "%H"))  # Hour of the day
+df$day_of_week <- as.integer(format(df$datetime, "%w"))  # Day of the week (0=Sunday, 6=Saturday)
+df$minute <- as.integer(format(df$datetime, "%M"))  # Minute in hour
+df$quarter_hour <- df$minute %/% 15  # 0, 1, 2, or 3 for each quarter of the hour
+
+market_open_times <- list(
+  HK = 1,  # 1:00 UTC
+  LN = 8,  # 8:00 UTC
+  NY = 13  # 13:00 UTC
+)
+
+for (market in names(market_open_times)) {
+  df[[paste0("time_since_", market, "_open")]] <- (((df$hour + df$minute / 60) - market_open_times[[market]]) + 24 ) %% 24
+}
+setDT(df)
+set(df, j = "week_id", value = format(df$datetime, "%Y-%U"))
+df[, first_close_of_week := close[1], by = week_id]  # First close of the week
+df[, return_since_week_start := (close - first_close_of_week) / first_close_of_week]  # Percentage return
+
+
+df$volatility <- df$high - df$low
+df$liquidity_index <- df$volatility / df$volume
+
+
+
+N <- 24  # Number of candles to look back (e.g., 24 hours)
+df[, max_high_N := frollapply(high, N, max, align = "right", fill = NA)]
+df[, min_low_N := frollapply(low, N, min, align = "right", fill = NA)]
+df[, max_drawdown := (max_high_N - min_low_N) / max_high_N]
+
+df[, HK_volatility := mean(volatility[hour >= 1 & hour < 8]), by = .(format(datetime, "%Y-%m-%d"))]
+df[, LN_volatility := mean(volatility[hour >= 8 & hour < 13]), by = .(format(datetime, "%Y-%m-%d"))]
+df[, NY_volatility := mean(volatility[hour >= 13 & hour < 20]), by = .(format(datetime, "%Y-%m-%d"))]
+
+feature_selection <- list(
+  open = TRUE,
+  close = FALSE,
+  high = FALSE,
+  low = FALSE,
+  volume = TRUE,
+  hour = TRUE,
+  day_of_week = TRUE,
+  quarter_hour = FALSE,  # Example: Disabled
+  time_since_HK_open = FALSE,
+  time_since_LN_open = FALSE,
+  time_since_NY_open = FALSE,
+  return_since_week_start = TRUE,
+  volatility = TRUE,
+  liquidity_index = FALSE,
+  max_drawdown = FALSE,
+  HK_volatility = FALSE,
+  LN_volatility = FALSE,
+  NY_volatility = FALSE
+)
+selected_features <- names(feature_selection)[unlist(feature_selection)]  # Get enabled features
+
+
+df_clean <- df[, ..selected_features]  # Select only those features
+
+
+df_clean <- df_clean[1:(24*365*1/2), ]  
+library(pryr)
+
+
+head(df_clean)
+
+object.size(df_clean)
+
+library(parallel)
+mem_used()
+model <- randomForest(x = df_clean, ntree = 50, randomState = 42)
+print(model)
+mem_used()
+proximity <- model$proximity
+print(proximity)
+
+anomaly_scores <- apply(proximity, 1, function(x) mean(x))
+print(anomaly_scores)
+
+threshold <- quantile(anomaly_scores, 0.01)
+print(threshold)
+
+df_clean$anomaly_flag <- ifelse(anomaly_scores < threshold, 1, 0)
+print(df_clean$anomaly_flag)
+print(df_clean)
+library(ggplot2)
+
+setDT(df_clean)
+df_clean[, datetime := df$datetime[1:nrow(df_clean)]]
+
+ggplot(df_clean, aes(x = datetime, y = open)) +
+  geom_line(color = "blue", size = 0.7) +  # Price line in blue
+  geom_point(data = df_clean[anomaly_flag == 1], aes(x = datetime, y = open), 
+             color = "red", size = 2, alpha = 0.8) +  # Red dots for anomalies
+  labs(title = "Bitcoin Price with Anomalies",
+       x = "Time",
+       y = "Close Price") +
+  theme_minimal()
+

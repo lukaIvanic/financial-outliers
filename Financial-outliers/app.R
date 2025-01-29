@@ -144,9 +144,17 @@ server <- function(input, output) {
     result <- getAnalysis(data_sub)
     x_vals <- result$x_values
     y_vals <- result$y_values
+    
+    plot_df <- data.frame(
+      category = x_vals,
+      avg_change = y_vals
+    )
+    
+    # Bar plot of average price change by category  
+
 
     # 6. Decide the plot type (here we use "line" for a time series)
-    my_plot_type <- "line"
+    my_plot_type <- "bar"
     
     # 7. Call your custom plotting function
     generatePlot(

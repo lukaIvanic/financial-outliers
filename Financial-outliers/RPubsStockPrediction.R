@@ -13,6 +13,7 @@ View(indf_data)
 chart_Series(indf_data, col = "black")
 
 
+
 add_SMA(n = 100, on = 1, col = "red")
 add_SMA(n = 20, on = 1, col = "black")
 
