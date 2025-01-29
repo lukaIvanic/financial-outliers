@@ -1,0 +1,29 @@
+- usporedba, ako je close vrijednost veca od najvece "high" vrijednosti u zadnjih 10
+(n) candle-a, koja ce biti razlika u cijenu u sljedecih 10 (m) vrijednosti. (jedan stupac). Drugi stupac tipa ako je u top 3 (k) od 10 (n) vrijednosti. Treci stupac ostalo.
+- ista stvar ali za low
+- ako je cijena u zadnjih 30 (n, moze bit i 2) candlea pocela i zavrsila na vise manje istom mjestu, 
+  i da je taj period imao povišeni volumen za faktor 1.5 (k), u usporedbi s prosjekom 
+  prošlih 10 (m) volumena
+- neki univariate anomaly detection i nakon toga tipa 2 candlea vidjet koja je razlika
+  (i mozda pripazit je li anomaly isao na low ili high or whatever)
+- vidjet koliko prvih n minuta od otvorenja (HK, LN, NY) utječe na sljedecih n minuta
+- uzet liquidity index quartile i usporedit s njima ako cijena nastavlja rast ili pada tipa
+  ()
+
+
+features
+- hour of day
+- day of week
+- minute in hour (or quarter of hour)
+- time since (HK, LN, NY) open
+- return since start of week
+- volatility (high-low)
+- liquidity index ((high - low) / volume)
+- trade per second (jako zanimljivo, ali nemamo trades, tj imamo ali za kraj - doubt)
+- intraday volatility curve (usporedba HK, LN, NY trade volumea ili volatilitya)
+- max drawdown (highest - lowest in % in last n candles)
+
+
+
+
+
